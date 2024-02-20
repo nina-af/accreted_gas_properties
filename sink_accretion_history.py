@@ -15,11 +15,9 @@ class SinkAccretionHistory:
     Adapted from A. Kaalva.
     """
     
-    def __init__(self, bhdir, datadir, label):
-        self.bhdir   = bhdir      # location of blackhole_details directory.
-        self.datadir = datadir    # store generated .txt files, etc.
-        self.label   = label      # simulation label, e.g., M2e3_R3_a2..., for filenames.
-        
+    # Initialize with path to blackhole_details directory (bhdir).
+    def __init__(self, bhdir):
+        self.bhdir          = bhdir
         self.accretion_dict = self.accretion_history_to_dict()
         
     def get_accretion_history(self, fname=None, save_txt=False):
@@ -74,12 +72,12 @@ class SinkAccretionHistory:
     
         # Stack into (N_gas_accreted, 3) array to save to text file.
         accretion_data = np.vstack((sink_IDs_sort, gas_IDs_sort, times_sort)).T
-    
-        # Write to text file.
+
+        # (Optionally) save as text file.
         if save_txt:
+            # If no filename, save in blackhole_details directory.
             if fname is None:
-                fname = os.path.join(self.datadir, 
-                                     ('accretion_data_' + self.label + '.txt'))
+                fname = os.path.join(self.bhdir, 'sink_accretion_data.txt')
             fmt = '%d', '%d', '%.8f'
             np.savetxt(fname, accretion_data, fmt=fmt)
         
@@ -129,18 +127,22 @@ class SinkAccretionHistory:
 
         sink_formation_data = np.vstack((t, m, x, y, z, u, v, w)).T
     
-        # Write to text file.
+        # (Optionally) save as text file.
         if save_txt:
+            # If no filename, save in blackhole_details directory.
             if fname is None:
-                fname = os.path.join(self.datadir, 
-                                     ('sink_formation_data_' + self.label + '.txt'))
+                fname = os.path.join(self.bhdir, 'sink_formation_data.txt')
             fmt   = '%d','%.8g','%.8g','%.8g','%.8g','%.8g','%.8g','%.8g','%.8g'  
             np.savetxt(fname, np.vstack((sink_IDs, t, m, x, y, z, u, v, w)).T, fmt=fmt)
             
         return sink_IDs, sink_formation_data
     
-    # Parse accretion_data, sink_formation_data text files to return dict of 
-    # sink ID: gas IDs, accretion times, formation properties for each sink particle.
+    # Parse accretion_data, sink_formation_data to return dict containing
+    # gas IDs, accretion times, formation properties for each sink particle.
+    # dict keys: sink IDs (int_arr)
+    # dict values:
+    #   - accretion_dict[sink_ID][0] = [accreted_gas_ids (int_arr), accretion_times (float_arr)]
+    #   - accretion_dict[sink_ID][1] = sink [t, m, x, y, z, vx, vy, vz] at formation.
     def accretion_history_to_dict(self, fname_gas=None, fname_sink=None):
         
         # Read accretion_data from stored .txt file.
@@ -390,3 +392,27 @@ class SnapshotGasProperties:
         T_transition          = self._DMIN(8000., nH_cgs)
         f_mol                 = 1./(1. + T_eff_atomic**2/T_transition**2)
         return 4. / (1. + (3. + 4.*self.p0_Ne[idx_g] - 2.*f_mol) * self.HYDROGEN_MASSFRAC)
+
+    # Utility functions.
+    def weight_avg(self, data, weights):
+        "Weighted average"
+        weights   = np.abs(weights)
+        weightsum = np.sum(weights)
+        if (weightsum > 0):
+            return np.sum(data * weights) / weightsum
+        else:
+            return 0
+    def weight_std(self, data, weights):
+        "Weighted standard deviation."
+        weights   = np.abs(weights)
+        weightsum = np.sum(weights)
+        if (weightsum > 0):
+            return np.sqrt(np.sum(((data - self.weight_avg(data, weights))**2) * weights) / weightsum)
+        else:
+            return 0
+    def _sigmoid_sqrt(self, x):
+        return 0.5*(1 + x/np.sqrt(1+x*x))
+    def _DMIN(self, a, b):
+        return np.where(a < b, a, b)
+    def _DMAX(self, a, b):
+        return np.where(a > b, a, b)
