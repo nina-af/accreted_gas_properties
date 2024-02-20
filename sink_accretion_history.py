@@ -276,7 +276,6 @@ class SnapshotGasProperties:
         self.HYDROGEN_MASSFRAC  = 0.76
         self.ELECTRONCHARGE_CGS = 4.8032e-10
         self.C_LIGHT_CGS        = 2.9979e10
-        self.HYDROGEN_MASSFRAC  = 0.76
 
         # Initial cloud parameters.
         self.fname   = fname
