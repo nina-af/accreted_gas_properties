@@ -269,7 +269,7 @@ class SnapshotGasProperties:
     Read gas particle data from HDF5 snapshot.
     """
 
-    def __init__(self, fname, cloud, B_unit=1e4):
+    def __init__(self, fname, cloud, B_unit=1e4, res_limit=1e-3):
 
         # Physical constants.
         self.PROTONMASS_CGS     = 1.6726e-24
@@ -287,6 +287,9 @@ class SnapshotGasProperties:
         self.R0      = cloud.R
         self.L0      = cloud.L      # Volume-equivalent length.
         self.alpha0  = cloud.alpha  # Initial virial parameter.
+        
+        # Resolution limit for masking feedback cells.
+        self.res_limit = res_limit
 
         # Open HDF5 file.
         with h5py.File(fname, 'r') as f:
@@ -379,6 +382,105 @@ class SnapshotGasProperties:
             self.p0_coord = np.vstack((self.p0_x, self.p0_y, self.p0_z)).T
             self.p0_vel   = np.vstack((self.p0_u, self.p0_v, self.p0_w)).T
             self.p0_mag   = np.vstack((self.p0_Bx, self.p0_By, self.p0_Bz)).T
+            
+    # Check that mask based on gas_ids, res_limit is non_zero.
+    def check_gas_ids(self, gas_ids, verbose=True):
+        mask_ids = np.isin(self.p0_ids, gas_ids)
+        mask_res = (self.p0_m >= 0.99 * self.res_limit)
+        mask_all = np.logical_and(mask_ids, mask_res)
+        
+        if np.sum(mask_all) > 0:
+            return True
+        else:
+            if verbose:
+                print('No gas_ids above resolution limit.')
+            return False
+            
+    # Get mask based on gas_ids, res_limit.
+    def get_mask(self, gas_ids):
+        mask_ids = np.isin(self.p0_ids, gas_ids)
+        mask_res = (self.p0_m >= 0.99 * self.res_limit)
+        mask_all = np.logical_and(mask_ids, mask_res)
+        
+        return mask_all
+        
+    # Get center of mass for selected gas particles.
+    def get_center_of_mass(self, gas_ids):
+        if np.isscalar(gas_ids):
+            idx_g = np.where(self.p0_ids == gas_ids)[0][0]
+        else:
+            idx_g = np.isin(self.p0_ids, gas_ids)
+        m, M    = self.p0_m[idx_g], np.sum(self.p0_m[idx_g])
+        x, y, z = self.p0_x[idx_g], self.p0_y[idx_g], self.p0_z[idx_g]
+        u, v, w = self.p0_u[idx_g], self.p0_v[idx_g], self.p0_w[idx_g]
+
+        x_cm = np.sum(np.multiply(m, x))/M; u_cm = np.sum(np.multiply(m, u))/M
+        y_cm = np.sum(np.multiply(m, y))/M; v_cm = np.sum(np.multiply(m, v))/M
+        z_cm = np.sum(np.multiply(m, z))/M; w_cm = np.sum(np.multiply(m, w))/M
+
+        cm_x = np.asarray([x_cm, y_cm, z_cm])
+        cm_v = np.asarray([u_cm, v_cm, w_cm])
+
+        return M, cm_x, cm_v
+        
+    # Get gas kinematics relative to x, v vectors.
+    def get_gas_relative_kinematics(self, gas_ids, point_x, point_v):
+        x0, y0, z0 = point_x[0], point_x[1], point_x[2]
+        u0, v0, w0 = point_v[0], point_v[1], point_v[2]
+        if np.isscalar(gas_ids):
+            idx_g = np.where(self.p0_ids == gas_ids)[0][0]
+        else:
+            idx_g = np.isin(self.p0_ids, gas_ids)
+        m       = self.p0_m[idx_g]
+        x, y, z = self.p0_x[idx_g] - x0, self.p0_y[idx_g] - y0, self.p0_z[idx_g] - z0
+        u, v, w = self.p0_u[idx_g] - u0, self.p0_v[idx_g] - v0, self.p0_w[idx_g] - w0
+        
+        if np.isscalar(gas_ids):
+            return m, np.asarray([x, y, z]), np.asarray([u, v, w])
+        else:
+            return m, np.vstack((x, y, z)).T, np.vstack((u, v, w)).T
+            
+    # Get total mass of remaining gas.
+    def get_gas_mass(self, gas_ids):
+        if np.isscalar(gas_ids):
+            idx_g = np.where(self.p0_ids == gas_ids)[0][0]
+        else:
+            idx_g = np.isin(self.p0_ids, gas_ids)
+        m = self.p0_m[idx_g]
+        return np.sum(m)
+        
+    # Get effective radius of selected gas particles.
+    def get_gas_effective_radius(self, gas_ids):
+        if np.isscalar(gas_ids):
+            idx_g = np.where(self.p0_ids == gas_ids)[0][0]
+        else:
+            idx_g = np.isin(self.p0_ids, gas_ids)
+        m   = self.p0_m[idx_g]
+        rho = self.p0_rho[idx_g]
+        vol = np.sum(m/rho)
+        r   = ((3.0 * vol) / (4.0 * np.pi))**(1.0/3.0)
+        return r
+        
+    # Get velocity dispersion of selected gas particles.
+    def get_gas_sigma_3D(self, gas_ids):
+        if np.isscalar(gas_ids):
+            idx_g = np.where(self.p0_ids == gas_ids)[0][0]
+        else:
+            idx_g = np.isin(self.p0_ids, gas_ids)
+        m       = self.p0_m[idx_g]
+        u, v, w = self.p0_u[idx_g], self.p0_v[idx_g], self.p0_w[idx_g]
+        sigma_3D = np.sqrt((self.weight_std(u, m)**2.0 + self.weight_std(v, m)**2.0 + \
+                            self.weight_std(w, m)**2.0))
+        return sigma_3D
+        
+    # Get angular momentum (with respect to center of mass) of selected gas particles.
+    def get_net_ang_mom(self, gas_ids):
+        m_cm, x_cm, v_cm = self.get_center_of_mass(gas_ids)
+        m_g, x_g, v_g    = self.get_gas_relative_kinematics(gas_ids, x_cm, v_cm)
+        ang_mom_vec      = np.sum(np.cross(x_g, np.multiply(m_g, v_g)), axis=0)
+        ang_mom_mag      = np.linalg.norm(ang_mom_vec)
+        ang_mom_unit_vec = ang_mom_vec / ang_mom_mag
+        return ang_mom_unit_vec, ang_mom_mag
 
     # Try to get snapshot datadir from filename.
     def get_snapdir(self):
