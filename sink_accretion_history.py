@@ -4,6 +4,7 @@ import os
 import glob
 import numpy as np
 import h5py
+import pytreegrav as pg
 
 class SinkAccretionHistory:
 
@@ -318,7 +319,7 @@ class SnapshotGasProperties:
             self.P_unit      = self.m_unit / self.l_unit / self.t_unit**2
             self.spec_L_unit = self.l_unit * self.v_unit        # Specific angular momentum.
             self.L_unit      = self.spec_L_unit * self.m_unit   # Angular momentum.
-            self.E_unit      = self.l_unit**2 / self.t_unit**2  # Energy [erg].
+            self.E_unit      = self.l_unit**2 / self.t_unit**2  # Energy per mass.
             # Convert internal energy to temperature units.
             self.u_to_temp_units = (self.PROTONMASS_CGS/self.BOLTZMANN_CGS)*self.E_unit
 
@@ -383,6 +384,19 @@ class SnapshotGasProperties:
             self.p0_vel   = np.vstack((self.p0_u, self.p0_v, self.p0_w)).T
             self.p0_mag   = np.vstack((self.p0_Bx, self.p0_By, self.p0_Bz)).T
             
+    # Try to get snapshot datadir from filename.
+    def get_snapdir(self):
+        return self.fname.split('snapshot_')[0]
+
+    # Calculate gas mean molecular weight.
+    def get_mean_molecular_weight(self, gas_ids):
+        idx_g                 = np.isin(self.p0_ids, gas_ids)
+        T_eff_atomic          = 1.23 * (5.0/3.0-1.0) * self.u_to_temp_units * self.p0_E_int[idx_g]
+        nH_cgs                = self.p0_rho[idx_g] * self.nH_unit
+        T_transition          = self._DMIN(8000., nH_cgs)
+        f_mol                 = 1./(1. + T_eff_atomic**2/T_transition**2)
+        return 4. / (1. + (3. + 4.*self.p0_Ne[idx_g] - 2.*f_mol) * self.HYDROGEN_MASSFRAC)
+            
     # Check that mask based on gas_ids, res_limit is non_zero.
     def check_gas_ids(self, gas_ids, verbose=True):
         mask_ids = np.isin(self.p0_ids, gas_ids)
@@ -404,12 +418,17 @@ class SnapshotGasProperties:
         
         return mask_all
         
-    # Get center of mass for selected gas particles.
-    def get_center_of_mass(self, gas_ids):
+    # Get indices of selected gas particles.
+    def get_idx(self, gas_ids):
         if np.isscalar(gas_ids):
             idx_g = np.where(self.p0_ids == gas_ids)[0][0]
         else:
             idx_g = np.isin(self.p0_ids, gas_ids)
+        return idx_g
+        
+    # Get center of mass for selected gas particles.
+    def get_center_of_mass(self, gas_ids):
+        idx_g   = self.get_idx(gas_ids)
         m, M    = self.p0_m[idx_g], np.sum(self.p0_m[idx_g])
         x, y, z = self.p0_x[idx_g], self.p0_y[idx_g], self.p0_z[idx_g]
         u, v, w = self.p0_u[idx_g], self.p0_v[idx_g], self.p0_w[idx_g]
@@ -424,13 +443,11 @@ class SnapshotGasProperties:
         return M, cm_x, cm_v
         
     # Get gas kinematics relative to x, v vectors.
-    def get_gas_relative_kinematics(self, gas_ids, point_x, point_v):
+    def get_relative_kinematics(self, gas_ids, point_x, point_v):
         x0, y0, z0 = point_x[0], point_x[1], point_x[2]
         u0, v0, w0 = point_v[0], point_v[1], point_v[2]
-        if np.isscalar(gas_ids):
-            idx_g = np.where(self.p0_ids == gas_ids)[0][0]
-        else:
-            idx_g = np.isin(self.p0_ids, gas_ids)
+        
+        idx_g   = self.get_idx(gas_ids)
         m       = self.p0_m[idx_g]
         x, y, z = self.p0_x[idx_g] - x0, self.p0_y[idx_g] - y0, self.p0_z[idx_g] - z0
         u, v, w = self.p0_u[idx_g] - u0, self.p0_v[idx_g] - v0, self.p0_w[idx_g] - w0
@@ -441,32 +458,23 @@ class SnapshotGasProperties:
             return m, np.vstack((x, y, z)).T, np.vstack((u, v, w)).T
             
     # Get total mass of remaining gas.
-    def get_gas_mass(self, gas_ids):
-        if np.isscalar(gas_ids):
-            idx_g = np.where(self.p0_ids == gas_ids)[0][0]
-        else:
-            idx_g = np.isin(self.p0_ids, gas_ids)
-        m = self.p0_m[idx_g]
+    def get_total_mass(self, gas_ids):
+        idx_g = self.get_idx(gas_ids)
+        m     = self.p0_m[idx_g]
         return np.sum(m)
         
     # Get effective radius of selected gas particles.
-    def get_gas_effective_radius(self, gas_ids):
-        if np.isscalar(gas_ids):
-            idx_g = np.where(self.p0_ids == gas_ids)[0][0]
-        else:
-            idx_g = np.isin(self.p0_ids, gas_ids)
-        m   = self.p0_m[idx_g]
-        rho = self.p0_rho[idx_g]
-        vol = np.sum(m/rho)
-        r   = ((3.0 * vol) / (4.0 * np.pi))**(1.0/3.0)
+    def get_effective_radius(self, gas_ids):
+        idx_g = self.get_idx(gas_ids)
+        m     = self.p0_m[idx_g]
+        rho   = self.p0_rho[idx_g]
+        vol   = np.sum(m/rho)
+        r     = ((3.0 * vol) / (4.0 * np.pi))**(1.0/3.0)
         return r
         
     # Get velocity dispersion of selected gas particles.
-    def get_gas_sigma_3D(self, gas_ids):
-        if np.isscalar(gas_ids):
-            idx_g = np.where(self.p0_ids == gas_ids)[0][0]
-        else:
-            idx_g = np.isin(self.p0_ids, gas_ids)
+    def get_velocity_dispersion(self, gas_ids):
+        idx_g   = self.get_idx(gas_ids)
         m       = self.p0_m[idx_g]
         u, v, w = self.p0_u[idx_g], self.p0_v[idx_g], self.p0_w[idx_g]
         sigma_3D = np.sqrt((self.weight_std(u, m)**2.0 + self.weight_std(v, m)**2.0 + \
@@ -474,26 +482,44 @@ class SnapshotGasProperties:
         return sigma_3D
         
     # Get angular momentum (with respect to center of mass) of selected gas particles.
-    def get_net_ang_mom(self, gas_ids):
+    def get_angular_momentum(self, gas_ids):
+        # ERRORS TO BE FIXED.
         m_cm, x_cm, v_cm = self.get_center_of_mass(gas_ids)
-        m_g, x_g, v_g    = self.get_gas_relative_kinematics(gas_ids, x_cm, v_cm)
-        ang_mom_vec      = np.sum(np.cross(x_g, np.multiply(m_g, v_g)), axis=0)
+        m_g, x_g, v_g    = self.get_relative_kinematics(gas_ids, x_cm, v_cm)
+        ang_mom_vec      = np.sum(np.cross(x_g, m_g*v_g), axis=0)
         ang_mom_mag      = np.linalg.norm(ang_mom_vec)
         ang_mom_unit_vec = ang_mom_vec / ang_mom_mag
         return ang_mom_unit_vec, ang_mom_mag
 
-    # Try to get snapshot datadir from filename.
-    def get_snapdir(self):
-        return self.fname.split('snapshot_')[0]
-
-    # Calculate gas mean molecular weight.
-    def get_mean_molecular_weight(self, gas_ids):
-        idx_g                 = np.isin(self.p0_ids, gas_ids)
-        T_eff_atomic          = 1.23 * (5.0/3.0-1.0) * self.u_to_temp_units * self.p0_E_int[idx_g]
-        nH_cgs                = self.p0_rho[idx_g] * self.nH_unit
-        T_transition          = self._DMIN(8000., nH_cgs)
-        f_mol                 = 1./(1. + T_eff_atomic**2/T_transition**2)
-        return 4. / (1. + (3. + 4.*self.p0_Ne[idx_g] - 2.*f_mol) * self.HYDROGEN_MASSFRAC)
+    # Get gravitational potential energy (need pytreegrav module).
+    def get_potential_energy(self, gas_ids):
+        idx_g   = self.get_idx(gas_ids)
+        m, h    = self.p0_m[idx_g], self.p0_hsml[idx_g]
+        x, y, z = self.p0_x[idx_g], self.p0_y[idx_g], self.p0_z[idx_g]
+        pos     = np.vstack((x, y, z)).T
+        E_pot   = 0.5 * np.sum(m * pg.Potential(pos, m, h, G=self.G_code))
+        return E_pot
+        
+    # Get kinetic energy [code units].
+    def get_kinetic_energy(self, gas_ids):
+        idx_g   = self.get_idx(gas_ids)
+        m       = self.p0_m[idx_g]
+        u, v, w = self.p0_u[idx_g], self.p0_v[idx_g], self.p0_w[idx_g]
+        vel     = np.vstack((u, v, w)).T
+        dv      = vel - np.average(vel, weights=m, axis=0)
+        v_sqr   = np.sum(dv**2,axis=1)
+        E_kin   = 0.5 * np.sum(m * v_sqr)
+        return E_kin
+        
+    # Get magnetic energy [code units].
+    def get_magnetic_energy(self, gas_ids):
+        idx_g   = self.get_idx(gas_ids)
+        m, rho  = self.p0_m[idx_g], self.p0_rho[idx_g]
+        B_mag   = self.p0_B_mag[idx_g] * self.B_unit
+        vol     = (m / rho) * self.l_unit**3
+        E_mag   = (1.0/(8.0 * np.pi)) * np.sum(B_mag*B_mag*vol) / (self.E_unit * self.m_unit)
+        return E_mag
+    
 
     # Utility functions.
     def weight_avg(self, data, weights):
