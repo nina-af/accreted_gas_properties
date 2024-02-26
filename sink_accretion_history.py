@@ -669,14 +669,19 @@ class SnapshotGasProperties:
         M_fb   = all_data[:, 24]
 
         i     = self.get_i()
-        fname = os.path.join(datadir, 'snapshot_{0:03d}_accreted_gas_properties'.format(i))
+        fname = os.path.join(datadir, 'snapshot_{0:03d}_accreted_gas_properties.hdf5'.format(i))
 
         f      = h5py.File(fname, 'w')
         header = f.create_dataset('header', (1,))
-        header.attrs.create('time', self.t)
+        header.attrs.create('time', self.t, dtype=float)
+        header.attrs.create('m_unit', self.m_unit, dtype=float)
+        header.attrs.create('l_unit', self.l_unit, dtype=float)
+        header.attrs.create('v_unit', self.v_unit, dtype=float)
+        header.attrs.create('t_unit', self.t_unit, dtype=float)
+        header.attrs.create('B_unit', self.B_unit, dtype=float)
 
         # Sink IDs dataset.
-        f.create_dataset('sink_IDs', data=np.asarray(acc_dict['sink_IDs']))
+        f.create_dataset('sink_IDs', data=np.asarray(acc_dict['sink_IDs']), dtype=int)
         f.create_dataset('M_tot', data=M_tot)
         f.create_dataset('X_cm', data=x_cm)
         f.create_dataset('V_cm', data=v_cm)
@@ -691,8 +696,8 @@ class SnapshotGasProperties:
         f.create_dataset('kinetic_energy', data=E_kin)
         f.create_dataset('magnetic_energy', data=E_mag)
         f.create_dataset('internal_energy', data=E_int)
-        f.create_dataset('included_particle_number', data=N_inc)
-        f.create_dataset('feedback_particle_number', data=N_fb)
+        f.create_dataset('included_particle_number', data=N_inc, dtype=int)
+        f.create_dataset('feedback_particle_number', data=N_fb, dtype=int)
         f.create_dataset('feedback_particle_mass', data=M_fb)
 
         f.close()
@@ -720,3 +725,4 @@ class SnapshotGasProperties:
         return np.where(a < b, a, b)
     def _DMAX(self, a, b):
         return np.where(a > b, a, b)
+
