@@ -383,7 +383,11 @@ class SnapshotGasProperties:
             self.p0_coord = np.vstack((self.p0_x, self.p0_y, self.p0_z)).T
             self.p0_vel   = np.vstack((self.p0_u, self.p0_v, self.p0_w)).T
             self.p0_mag   = np.vstack((self.p0_Bx, self.p0_By, self.p0_Bz)).T
-            
+
+    # Try to get snapshot number from filename.
+    def get_i(self):
+        return int(self.fname.split('snapshot_')[1].split('.hdf5')[0])
+
     # Try to get snapshot datadir from filename.
     def get_snapdir(self):
         return self.fname.split('snapshot_')[0]
@@ -417,6 +421,16 @@ class SnapshotGasProperties:
         mask_all = np.logical_and(mask_ids, mask_res)
         
         return mask_all
+
+    # Get number and total mass of particles excluded due to res_limit
+    # (i.e., number of particles with masses below the resolution limit but
+    # matching the particle ID of an accreted gas cell).
+    def get_excluded_particles(self, gas_ids):
+        mask_ids = np.isin(self.p0_ids, gas_ids)
+        mask_res = (self.p0_m < 0.99 * self.res_limit)
+        mask_fb  = np.logical_and(mask_ids, mask_res)
+        N_fb, M_fb = np.sum(mask_fb), np.sum(self.p0_m[mask_fb])
+        return N_fb, M_fb
         
     # Get indices of selected gas particles.
     def get_idx(self, gas_ids):
@@ -516,9 +530,172 @@ class SnapshotGasProperties:
         m, rho  = self.p0_m[idx_g], self.p0_rho[idx_g]
         B_mag   = self.p0_B_mag[idx_g] * self.B_unit
         vol     = (m / rho) * self.l_unit**3
-        E_mag   = (1.0/(8.0 * np.pi)) * np.sum(B_mag*B_mag*vol) / (self.E_unit * self.m_unit)
+        E_mag   = (1.0/(8.0 * np.pi)) * np.sum(B_mag * B_mag * vol) / (self.E_unit * self.m_unit)
         return E_mag
-    
+
+    # Get internal energy [code units].
+    def get_internal_energy(self, gas_ids):
+        idx_g = self.get_idx(gas_ids)
+        m, u  = self.p0_m[idx_g], self.p0_E_int[idx_g]
+        E_int = np.sum(m * u)
+        return E_int
+
+    # Get average (mass-weighted) temperature [K].
+    def get_average_temperature(self, gas_ids):
+        idx_g = self.get_idx(gas_ids)
+        m, T  = self.p0_m[idx_g], self.p0_temperature[idx_g]
+        return self.weight_avg(T, m)
+
+    # Get average (mass-weighted) magnetic field strength [gauss].
+    def get_average_magnetic_field(self, gas_ids):
+        idx_g = self.get_idx(gas_ids)
+        m, B  = self.p0_m[idx_g], self.p0_B_mag[idx_g]
+        return self.weight_avg(B, m) * self.B_unit
+
+    # TO-DO: get average ionization fraction. For now, just get
+    # average number of electrons per H nucleon.
+    def get_average_electron_abundance(self, gas_ids):
+        idx_g = self.get_idx(gas_ids)
+        m, Ne  = self.p0_m[idx_g], self.p0_Ne[idx_g]
+        return self.weight_avg(Ne, m)
+
+    # Get aspect ratio of selected gas particles (prinicpal component analysis).
+    def get_aspect_ratio(self, gas_ids):
+        idx_g = self.get_idx(gas_ids)
+        m     = self.p0_m[idx_g]
+        pos   = np.vstack((self.p0_x[idx_g], self.p0_y[idx_g], self.p0_z[idx_g])).T
+        dx    = pos - np.mean(pos, axis=0)
+        R     = np.linalg.norm(dx, axis=1)
+        ndim  = pos.shape[1]
+        I     = np.eye(ndim) * np.mean(R**2)
+        for i in range(ndim):
+            for j in range(ndim):
+                I[i,j] -= np.mean(dx[:,i] * dx[:,j])
+        w, v = np.linalg.eig(I)
+        R_p  = np.sqrt(w)
+        #return np.max(R_p)/np.min(R_p), np.sum(R_p/R_p.max()), R_p
+        return R_p  # array of principle components.
+
+    # Get gas properties of selected gas particles.
+    def get_gas_data(self, gas_ids):
+        data = np.zeros(25)
+
+        if not self.check_gas_ids(gas_ids):
+            return data
+
+        M_tot, x_cm, v_cm = self.get_center_of_mass(gas_ids)
+        L_unit_vec, L_mag = self.get_angular_momentum(gas_ids)
+        L_vec  = L_mag * L_unit_vec
+        R_eff  = self.get_effective_radius(gas_ids)
+        R_p    = self.get_aspect_ratio(gas_ids)
+        T      = self.get_average_temperature(gas_ids)
+        B      = self.get_average_magnetic_field(gas_ids)
+        Ne     = self.get_average_electron_abundance(gas_ids)
+        sig3D  = self.get_velocity_dispersion(gas_ids)
+        E_grav = self.get_potential_energy(gas_ids)
+        E_kin  = self.get_kinetic_energy(gas_ids)
+        E_mag  = self.get_magnetic_energy(gas_ids)
+        E_int  = self.get_internal_energy(gas_ids)
+        N_inc  = np.sum(self.get_mask(gas_ids))
+        N_fb, M_fb = self.get_excluded_particles(gas_ids)
+
+        data[0]     = M_tot   # Total mass.
+        data[1:4]   = x_cm    # Center of mass coordinates.
+        data[4:7]   = v_cm    # Center of mass velocity.
+        data[7:10]  = L_vec   # Angular momentum with respect to center of mass.
+        data[10]    = R_eff   # Effective radius.
+        data[11:14] = R_p     # Shape parameters (PCA).
+        data[14]    = T       # Average temperature.
+        data[15]    = B       # Average magnetic field magnitude (may need to use volume).
+        data[16]    = Ne      # Average number e- per H nucleon.
+        data[17]    = sig3D   # Average velocity dispersion.
+        data[18]    = E_grav  # Gravitational potential energy.
+        data[19]    = E_kin   # Kinetic energy.
+        data[20]    = E_mag   # Magnetic energy.
+        data[21]    = E_int   # Internal energy (temperature proxy).
+        data[22]    = N_inc   # Number of gas particles included in calculations.
+        data[23]    = N_fb    # Number of gas particles with IDs in gas_ids but excluded due to res_limit.
+        data[24]    = M_fb    # Mass of excluded (feedback) cells.
+
+        return data
+
+    # Get gas properties for each set of gas_ids in accretion_dict.
+    def get_all_gas_data(self, acc_dict):
+
+        # Unique sink IDs:
+        sink_IDs  = acc_dict['sink_IDs']
+        num_sinks = len(sink_IDs)
+
+        all_data = np.zeros((num_sinks, 25))
+
+        # Loop over unique sinks.
+        for j, sink_ID in enumerate(sink_IDs):
+
+            # Get particle IDs of all accreted gas particles.
+            acc_gas_ids = acc_dict[sink_ID][0][0]
+
+            # Get mask of accreted gas particles above resolution limit.
+            check_res_limit = self.check_gas_ids(acc_gas_ids, verbose=False)
+            if not check_res_limit:
+                continue
+            mask    = self.get_mask(acc_gas_ids)
+            gas_ids = self.p0_ids[mask]
+
+            # Get gas properties.
+            data           = self.get_gas_data(gas_ids)
+            all_data[j, :] = data
+
+        return all_data
+
+    # Write gas properties data to HDF5 file.
+    def write_to_file(self, all_data, acc_dict, datadir):
+
+        M_tot  = all_data[:, 0]
+        x_cm   = all_data[:, 1:4]
+        v_cm   = all_data[:, 4:7]
+        L_vec  = all_data[:, 7:10]
+        R_eff  = all_data[:, 10]
+        R_p    = all_data[:, 11:14]
+        T      = all_data[:, 14]
+        B      = all_data[:, 15]
+        Ne     = all_data[:, 16]
+        sig3D  = all_data[:, 17]
+        E_grav = all_data[:, 18]
+        E_kin  = all_data[:, 19]
+        E_mag  = all_data[:, 20]
+        E_int  = all_data[:, 21]
+        N_inc  = all_data[:, 22]
+        N_fb   = all_data[:, 23]
+        M_fb   = all_data[:, 24]
+
+        i     = self.get_i()
+        fname = os.path.join(datadir, 'snapshot_{0:03d}_accreted_gas_properties'.format(i))
+
+        f      = h5py.File(fname, 'w')
+        header = f.create_dataset('header', (1,))
+        header.attrs.create('time', self.t)
+
+        # Sink IDs dataset.
+        f.create_dataset('sink_IDs', data=np.asarray(acc_dict['sink_IDs']))
+        f.create_dataset('M_tot', data=M_tot)
+        f.create_dataset('X_cm', data=x_cm)
+        f.create_dataset('V_cm', data=v_cm)
+        f.create_dataset('angular_momentum', data=L_vec)
+        f.create_dataset('effective_radius', data=R_eff)
+        f.create_dataset('aspect_ratio', data=R_p)
+        f.create_dataset('temperature', data=T)
+        f.create_dataset('magnetic_field_strength', data=B)
+        f.create_dataset('electron_abundance', data=Ne)
+        f.create_dataset('velocity_dispersion', data=sig3D)
+        f.create_dataset('potential_energy', data=E_grav)
+        f.create_dataset('kinetic_energy', data=E_kin)
+        f.create_dataset('magnetic_energy', data=E_mag)
+        f.create_dataset('internal_energy', data=E_int)
+        f.create_dataset('included_particle_number', data=N_inc)
+        f.create_dataset('feedback_particle_number', data=N_fb)
+        f.create_dataset('feedback_particle_mass', data=M_fb)
+
+        f.close()
 
     # Utility functions.
     def weight_avg(self, data, weights):
