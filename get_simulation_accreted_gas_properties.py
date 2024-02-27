@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import numpy as np
 import sys
 import os
@@ -17,8 +19,8 @@ cloud = Cloud(M0, R0, alpha0)
 def get_fname(i, snapdir=snapdir):
     return os.path.join(snapdir, 'snapshot_{0:03d}.hdf5'.format(i))
 
-# Set snapshot range (later: do automatically?)
-i_min, i_max = 0, 10
+# Set snapshot range (later: pass as argument/detect from snapshot directory?)
+i_min, i_max = 0, 300
 
 # Loop over snapshots.
 for i in range(i_min, i_max, 1):
