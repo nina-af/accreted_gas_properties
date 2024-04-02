@@ -7,9 +7,9 @@ import h5py
 # Get masses, coordinates, velocities, particle IDs from HDF5 snapshots.
 def read_star_snapshot(i, snapdir, stars_only=True):
     if stars_only:
-        fname = os.path.join(sinkdir, 'snapshot_{0:03d}_stars.hdf5'.format(self.i))
+        fname = os.path.join(snapdir, 'snapshot_{0:03d}_stars.hdf5'.format(i))
     else:
-        fname = os.path.join(sinkdir, 'snapshot_{0:03d}.hdf5'.format(self.i))
+        fname = os.path.join(snapdir, 'snapshot_{0:03d}.hdf5'.format(i))
 
     with h5py.File(fname, 'r') as f:
         header = f['Header']
@@ -46,7 +46,8 @@ class FindHierarchicalSystems:
         self.msolar = 1.98892e+30     # kg
         self.Gconst = 6.67428e-11     # mks system
 
-        self.nstar = m.size
+        self.max_system_pop = max_system_pop
+        self.nstar          = m.size
 
         self.fill_energy_matrix()
 
@@ -128,7 +129,7 @@ class FindHierarchicalSystems:
                 ind1 = pos[0]
                 ind2 = pos[1]
                 # Merge systems if resulting population size is less than max_system_pop.
-                if((self.systempops[ind1] + self.systempops[ind2]) <= max_system_pop):
+                if((self.systempops[ind1] + self.systempops[ind2]) <= self.max_system_pop):
                     self.merge_systems(ind1, ind2)
                     changed = 1
                     break
