@@ -538,6 +538,15 @@ class SnapshotGasProperties:
         ang_mom_unit_vec = ang_mom_vec / ang_mom_mag
         return ang_mom_unit_vec, ang_mom_mag
 
+    # Get specific angular momentum (with respect to center of mass) of selected gas particles.
+    def get_specific_angular_momentum(self, gas_ids):
+        m_cm, x_cm, v_cm = self.get_center_of_mass(gas_ids)
+        m_g, x_g, v_g    = self.get_relative_kinematics(gas_ids, x_cm, v_cm)
+        ang_mom_vec      = np.sum(np.cross(x_g, v_g), axis=0)
+        ang_mom_mag      = np.linalg.norm(ang_mom_vec)
+        ang_mom_unit_vec = ang_mom_vec / ang_mom_mag
+        return ang_mom_unit_vec, ang_mom_mag
+
     # Get gravitational potential energy (need pytreegrav module).
     def get_potential_energy(self, gas_ids):
         idx_g   = self.get_idx(gas_ids)
@@ -620,7 +629,8 @@ class SnapshotGasProperties:
             return data
 
         M_tot, x_cm, v_cm = self.get_center_of_mass(gas_ids)
-        L_unit_vec, L_mag = self.get_angular_momentum(gas_ids)
+        #L_unit_vec, L_mag = self.get_angular_momentum(gas_ids)
+        L_unit_vec, L_mag = self.get_specific_angular_momentum(gas_ids)
         L_vec  = L_mag * L_unit_vec
         R_eff  = self.get_effective_radius(gas_ids)
         R_p    = self.get_aspect_ratio(gas_ids)
@@ -639,7 +649,7 @@ class SnapshotGasProperties:
         data[0]     = M_tot   # Total mass.
         data[1:4]   = x_cm    # Center of mass coordinates.
         data[4:7]   = v_cm    # Center of mass velocity.
-        data[7:10]  = L_vec   # Angular momentum with respect to center of mass.
+        data[7:10]  = L_vec   # Specific angular momentum with respect to center of mass.
         data[10]    = R_eff   # Effective radius.
         data[11:14] = R_p     # Shape parameters (PCA).
         data[14]    = T       # Average temperature.
@@ -732,7 +742,7 @@ class SnapshotGasProperties:
         f.create_dataset('M_tot', data=M_tot)
         f.create_dataset('X_cm', data=x_cm)
         f.create_dataset('V_cm', data=v_cm)
-        f.create_dataset('angular_momentum', data=L_vec)
+        f.create_dataset('specific_angular_momentum', data=L_vec)
         f.create_dataset('effective_radius', data=R_eff)
         f.create_dataset('aspect_ratio', data=R_p)
         f.create_dataset('temperature', data=T)
