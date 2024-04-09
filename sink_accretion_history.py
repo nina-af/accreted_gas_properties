@@ -142,7 +142,9 @@ class SinkAccretionHistory:
     # gas IDs, accretion times, formation properties for each sink particle.
     # dict keys: sink IDs (int_arr)
     # dict values:
-    #   - accretion_dict[sink_ID][0] = [accreted_gas_ids (int_arr), accretion_times (float_arr)]
+    #   - accretion_dict[sink_ID][0] = [accreted_gas_ids (int_arr), accretion_times (float_arr),
+    #                                   (non-feedback) ids, (non-feedback) counts,
+    #                                   (feedback) ids, (feedback) counts]
     #   - accretion_dict[sink_ID][1] = sink [t, m, x, y, z, vx, vy, vz] at formation.
     def accretion_history_to_dict(self, fname_gas=None, fname_sink=None):
         
@@ -165,7 +167,22 @@ class SinkAccretionHistory:
     
         accretion_dict = dict.fromkeys(unique_sinks.astype(np.int64))
         for i in range(len(unique_sinks)):
-            accretion_dict[unique_sinks[i]] = [gas_IDs_split[i].astype(np.int64), acc_times_split[i]]
+
+            # All accreted gas IDs for this sink particle.
+            gas_ids_all, acc_times_all = gas_IDs_split[i].astype(np.int64), acc_times_split[i]
+
+            # Find unique gas IDs among list accreted gas IDs. Use to classify gas particles as
+            # "feedback" (multiple occurrences of particle ID) vs. "non-feedback" (appears only
+            # once in list of accreted gas IDs).
+            u, c = np.unique(gas_ids_all, return_counts=True)
+            mask = (c == 1)
+            u_n, c_n = u[mask], c[mask]    # Particle IDs, counts of non-feedback particles.
+            u_f, c_f = u[~mask], c[~mask]  # Particle IDs, counts of feedback particles.
+
+            # Use field 'u_n' (particle IDs of non-feedback gas) to analyze accreted gas properties.
+            # u_n = accretion_dict[sink_ID][0][2]
+            # u_f = accretion_dict[sink_ID][0][4]
+            accretion_dict[unique_sinks[i]] = [gas_ids_all, acc_times_all, u_n, c_n, u_f, c_f]
         accretion_dict['sink_IDs'] = unique_sinks.astype(np.int64)
     
         # Add sink particle properties at formation time to dict.
@@ -270,7 +287,7 @@ class SnapshotGasProperties:
     Read gas particle data from HDF5 snapshot.
     """
 
-    def __init__(self, fname, cloud, B_unit=1e4, res_limit=1e-3):
+    def __init__(self, fname, cloud, B_unit=1e4):
 
         # Physical constants.
         self.PROTONMASS_CGS     = 1.6726e-24
@@ -289,8 +306,10 @@ class SnapshotGasProperties:
         self.L0      = cloud.L      # Volume-equivalent length.
         self.alpha0  = cloud.alpha  # Initial virial parameter.
         
-        # Resolution limit for masking feedback cells.
-        self.res_limit = res_limit
+        # OLD: Resolution limit for masking feedback cells.
+        # self.res_limit = res_limit (1e-3)
+        # NEW: mask feedback cells based on frequency of appearance in list
+        # of all accreted gas IDs (1 = non-feedback; >1 = feedback).
 
         # Open HDF5 file.
         with h5py.File(fname, 'r') as f:
@@ -400,13 +419,15 @@ class SnapshotGasProperties:
         T_transition          = self._DMIN(8000., nH_cgs)
         f_mol                 = 1./(1. + T_eff_atomic**2/T_transition**2)
         return 4. / (1. + (3. + 4.*self.p0_Ne[idx_g] - 2.*f_mol) * self.HYDROGEN_MASSFRAC)
-            
-    # Check that mask based on gas_ids, res_limit is non_zero.
-    def check_gas_ids(self, gas_ids, verbose=True):
-        mask_ids = np.isin(self.p0_ids, gas_ids)
-        mask_res = (self.p0_m >= 0.99 * self.res_limit)
-        mask_all = np.logical_and(mask_ids, mask_res)
-        
+
+    # Get mask based on gas_ids (assumed to be non-feedback/unique particle IDs).
+    def get_mask(self, gas_ids, verbose=False):
+        mask = np.isin(self.p0_ids, gas_ids)
+        return mask
+
+    # Check that mask based on gas_ids is non-empty.
+    def check_gas_ids(self, gas_ids, verbose=False):
+        mask_all = self.get_mask(gas_ids)
         if np.sum(mask_all) > 0:
             return True
         else:
@@ -414,15 +435,27 @@ class SnapshotGasProperties:
                 print('No gas_ids above resolution limit.')
             return False
             
-    # Get mask based on gas_ids, res_limit.
+    """
+    # OLD: Get mask based on gas_ids, res_limit.
     def get_mask(self, gas_ids):
         mask_ids = np.isin(self.p0_ids, gas_ids)
         mask_res = (self.p0_m >= 0.99 * self.res_limit)
         mask_all = np.logical_and(mask_ids, mask_res)
-        
+
         return mask_all
 
-    # Get number and total mass of particles excluded due to res_limit
+    # OLD: Check that mask based on gas_ids, res_limit is non_zero.
+    def check_gas_ids(self, gas_ids, verbose=True):
+        mask_all = self.get_mask(gas_ids)
+        if np.sum(mask_all) > 0:
+            return True
+        else:
+            if verbose:
+                print('No gas_ids above resolution limit.')
+            return False
+
+
+    # OLD: Get number and total mass of particles excluded due to res_limit
     # (i.e., number of particles with masses below the resolution limit but
     # matching the particle ID of an accreted gas cell).
     def get_excluded_particles(self, gas_ids):
@@ -431,6 +464,7 @@ class SnapshotGasProperties:
         mask_fb  = np.logical_and(mask_ids, mask_res)
         N_fb, M_fb = np.sum(mask_fb), np.sum(self.p0_m[mask_fb])
         return N_fb, M_fb
+    """
         
     # Get indices of selected gas particles.
     def get_idx(self, gas_ids):
@@ -577,8 +611,10 @@ class SnapshotGasProperties:
         return R_p  # array of principle components.
 
     # Get gas properties of selected gas particles.
-    def get_gas_data(self, gas_ids):
-        data = np.zeros(25)
+    # gas_ids: pass accretion_dict[sink_ID][0][2] (non-feedback particle IDs).
+    def get_gas_data(self, gas_ids, num_feedback):
+        #data = np.zeros(25)
+        data = np.zeros(24) # Exclude M_fb (not relevant new method for identifying feedback).
 
         if not self.check_gas_ids(gas_ids):
             return data
@@ -597,7 +633,8 @@ class SnapshotGasProperties:
         E_mag  = self.get_magnetic_energy(gas_ids)
         E_int  = self.get_internal_energy(gas_ids)
         N_inc  = np.sum(self.get_mask(gas_ids))
-        N_fb, M_fb = self.get_excluded_particles(gas_ids)
+        #N_fb, M_fb = self.get_excluded_particles(gas_ids)
+        N_fb   = num_feedback
 
         data[0]     = M_tot   # Total mass.
         data[1:4]   = x_cm    # Center of mass coordinates.
@@ -614,8 +651,8 @@ class SnapshotGasProperties:
         data[20]    = E_mag   # Magnetic energy.
         data[21]    = E_int   # Internal energy (temperature proxy).
         data[22]    = N_inc   # Number of gas particles included in calculations.
-        data[23]    = N_fb    # Number of gas particles with IDs in gas_ids but excluded due to res_limit.
-        data[24]    = M_fb    # Mass of excluded (feedback) cells.
+        data[23]    = N_fb    # Number of gas particles excluded due to being (presumed) feedback particles.
+        #data[24]    = M_fb    # Mass of excluded (feedback) cells.
 
         return data
 
@@ -626,23 +663,33 @@ class SnapshotGasProperties:
         sink_IDs  = acc_dict['sink_IDs']
         num_sinks = len(sink_IDs)
 
-        all_data = np.zeros((num_sinks, 25))
+        #all_data = np.zeros((num_sinks, 25))
+        all_data = np.zeros((num_sinks, 24))
 
         # Loop over unique sinks.
         for j, sink_ID in enumerate(sink_IDs):
 
-            # Get particle IDs of all accreted gas particles.
-            acc_gas_ids = acc_dict[sink_ID][0][0]
+            # OLD: Get particle IDs of all accreted gas particles.
+            # acc_gas_ids = acc_dict[sink_ID][0][0]
 
-            # Get mask of accreted gas particles above resolution limit.
-            check_res_limit = self.check_gas_ids(acc_gas_ids, verbose=False)
-            if not check_res_limit:
+            # OLD: Get mask of accreted gas particles above resolution limit.
+            # check_res_limit = self.check_gas_ids(acc_gas_ids, verbose=False)
+            # if not check_res_limit:
+            #     continue
+
+            # Get particle IDs of non-feedback gas particles.
+            acc_gas_ids  = acc_dict[sink_ID][0][2]
+            num_feedback = np.sum(acc_dict[sink_ID][0][5])
+
+            # Check that there are more than zero gas IDs.
+            if not self.check_gas_ids(acc_gas_ids):
                 continue
+
             mask    = self.get_mask(acc_gas_ids)
             gas_ids = self.p0_ids[mask]
 
             # Get gas properties.
-            data           = self.get_gas_data(gas_ids)
+            data           = self.get_gas_data(gas_ids, num_feedback)
             all_data[j, :] = data
 
         return all_data
@@ -666,7 +713,7 @@ class SnapshotGasProperties:
         E_int  = all_data[:, 21]
         N_inc  = all_data[:, 22]
         N_fb   = all_data[:, 23]
-        M_fb   = all_data[:, 24]
+        #M_fb   = all_data[:, 24]
 
         i     = self.get_i()
         fname = os.path.join(datadir, 'snapshot_{0:03d}_accreted_gas_properties.hdf5'.format(i))
@@ -698,7 +745,7 @@ class SnapshotGasProperties:
         f.create_dataset('internal_energy', data=E_int)
         f.create_dataset('included_particle_number', data=N_inc, dtype=int)
         f.create_dataset('feedback_particle_number', data=N_fb, dtype=int)
-        f.create_dataset('feedback_particle_mass', data=M_fb)
+        #f.create_dataset('feedback_particle_mass', data=M_fb)
 
         f.close()
 
