@@ -13,6 +13,10 @@ def read_star_snapshot(i, snapdir, stars_only=True):
 
     with h5py.File(fname, 'r') as f:
         header = f['Header']
+
+        # If no PartType5 data yet, return None for all fields.
+        if not 'PartType5' in f:
+            return None, None, None, None
         p5     = f['PartType5']
 
         p5_ids = p5['ParticleIDs'][()]           # Particle IDs.
