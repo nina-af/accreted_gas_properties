@@ -168,6 +168,11 @@ class SinkAccretionHistory:
         accretion_dict = dict.fromkeys(unique_sinks.astype(np.int64))
         for i in range(len(unique_sinks)):
 
+            sink_accretion_dict = {'all_gas_ids':[], 'all_acc_times':[],
+                                   'non_fb_ids':[], 'non_fb_counts':[],
+                                   'fb_ids':[], 'fb_counts':[],
+                                   'formation_details':[]}
+
             # All accreted gas IDs for this sink particle.
             gas_ids_all, acc_times_all = gas_IDs_split[i].astype(np.int64), acc_times_split[i]
 
@@ -182,7 +187,14 @@ class SinkAccretionHistory:
             # Use field 'u_n' (particle IDs of non-feedback gas) to analyze accreted gas properties.
             # u_n = accretion_dict[sink_ID][0][2]
             # u_f = accretion_dict[sink_ID][0][4]
-            accretion_dict[unique_sinks[i]] = [gas_ids_all, acc_times_all, u_n, c_n, u_f, c_f]
+            # accretion_dict[unique_sinks[i]] = [gas_ids_all, acc_times_all, u_n, c_n, u_f, c_f]
+            sink_accretion_dict['all_gas_ids']   = gas_ids_all
+            sink_accretion_dict['all_acc_times'] = acc_times_all
+            sink_accretion_dict['non_fb_ids']    = u_n
+            sink_accretion_dict['non_fb_counts'] = c_n
+            sink_accretion_dict['fb_ids']        = u_f
+            sink_accretion_dict['fb_counts']     = c_f
+            accretion_dict[unique_sinks[i]]      = sink_accretion_dict
         accretion_dict['sink_IDs'] = unique_sinks.astype(np.int64)
     
         # Add sink particle properties at formation time to dict.
@@ -194,7 +206,9 @@ class SinkAccretionHistory:
             
         for i, sink_ID in enumerate(s_IDs):
             if sink_ID in accretion_dict:
-                accretion_dict[sink_ID] = [accretion_dict[sink_ID], s_data[i]]
+                sink_accretion_dict = accretion_dict[sink_ID]
+                sink_accretion_dict['formation_details'] = s_data[i]
+                accretion_dict[sink_ID] = sink_accretion_dict
     
         return accretion_dict
  
@@ -687,9 +701,9 @@ class SnapshotGasProperties:
             # if not check_res_limit:
             #     continue
 
-            # Get particle IDs of non-feedback gas particles.
-            acc_gas_ids  = acc_dict[sink_ID][0][2]
-            num_feedback = np.sum(acc_dict[sink_ID][0][5])
+            # Get particle IDs of accreted non-feedback gas particles.
+            acc_gas_ids  = acc_dict[sink_ID]['non_fb_ids']
+            num_feedback = np.sum(acc_dict[sink_ID]['fb_counts'])
 
             # Check that there are more than zero gas IDs.
             if not self.check_gas_ids(acc_gas_ids):
