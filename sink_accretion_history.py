@@ -554,6 +554,8 @@ class SnapshotGasProperties:
 
     # Get specific angular momentum (with respect to center of mass) of selected gas particles.
     def get_specific_angular_momentum(self, gas_ids):
+        if len(gas_ids) == 1:
+            return np.asarray([0.0, 0.0, 0.0]), 0.0
         m_cm, x_cm, v_cm = self.get_center_of_mass(gas_ids)
         m_g, x_g, v_g    = self.get_relative_kinematics(gas_ids, x_cm, v_cm)
         ang_mom_vec      = np.sum(np.cross(x_g, v_g), axis=0)
