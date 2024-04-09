@@ -15,4 +15,4 @@ source $HOME/miniconda3/etc/profile.d/conda.sh
 conda init bash
 conda activate $HOME/miniconda3/envs/py39
 
-./get_simulation_accreted_gas_properties.py 1>get_gas_properties_1.out 2>get_gas_properties_1.err
+./get_simulation_accreted_gas_properties.py 1>get_gas_properties_2.out 2>get_gas_properties_2.err
