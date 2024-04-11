@@ -324,6 +324,9 @@ class SnapshotGasProperties:
         # self.res_limit = res_limit (1e-3)
         # NEW: mask feedback cells based on frequency of appearance in list
         # of all accreted gas IDs (1 = non-feedback; >1 = feedback).
+        # PROBLEM - some feedback particles not captured by uniqueness
+        # check in acc_dict[sink_ID]['non_fb_ids'] - need an additional
+        # uniqueness check in list of matching particle IDs in snapshot.
 
         # Open HDF5 file.
         with h5py.File(fname, 'r') as f:
@@ -433,10 +436,20 @@ class SnapshotGasProperties:
         T_transition          = self._DMIN(8000., nH_cgs)
         f_mol                 = 1./(1. + T_eff_atomic**2/T_transition**2)
         return 4. / (1. + (3. + 4.*self.p0_Ne[idx_g] - 2.*f_mol) * self.HYDROGEN_MASSFRAC)
+    
+    # Return only those particle IDs in gas_ids which occur only once in
+    # list of all matching snapshot particle IDs.
+    def get_unique_ids(self, gas_ids):
+        mask_1       = np.isin(self.p0_ids, gas_ids)
+        matching_ids = self.p0_ids[mask_1]
+        u, c         = np.unique(matching_ids, return_counts=True)
+        unique_ids   = u[c == 1]
+        return unique_ids
 
-    # Get mask based on gas_ids (assumed to be non-feedback/unique particle IDs).
+    # Get mask based on gas_ids (include only unique IDs).
     def get_mask(self, gas_ids, verbose=False):
-        mask = np.isin(self.p0_ids, gas_ids)
+        unique_ids = self.get_unique_ids(gas_ids)
+        mask       = np.isin(self.p0_ids, unique_ids)
         return mask
 
     # Check that mask based on gas_ids is non-empty.
@@ -482,10 +495,11 @@ class SnapshotGasProperties:
         
     # Get indices of selected gas particles.
     def get_idx(self, gas_ids):
-        if np.isscalar(gas_ids):
-            idx_g = np.where(self.p0_ids == gas_ids)[0][0]
+        unique_ids = self.get_unique_ids(gas_ids)
+        if np.isscalar(unique_ids):
+            idx_g = np.where(self.p0_ids == unique_ids)[0][0]
         else:
-            idx_g = np.isin(self.p0_ids, gas_ids)
+            idx_g = np.isin(self.p0_ids, unique_ids)
         return idx_g
         
     # Get center of mass for selected gas particles.
@@ -636,7 +650,8 @@ class SnapshotGasProperties:
         return R_p  # array of principle components.
 
     # Get gas properties of selected gas particles.
-    # gas_ids: pass accretion_dict[sink_ID][0][2] (non-feedback particle IDs).
+    # gas_ids: pass accretion_dict[sink_ID]['non_fb_ids'] (non-feedback particle IDs).
+    # new particle uniqueness ID check added to get_idx in get_X methods.
     def get_gas_data(self, gas_ids, num_feedback):
         #data = np.zeros(25)
         data = np.zeros(24) # Exclude M_fb (not relevant new method for identifying feedback).
