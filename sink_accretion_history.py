@@ -439,12 +439,17 @@ class SnapshotGasProperties:
     
     # Return only those particle IDs in gas_ids which occur only once in
     # list of all matching snapshot particle IDs.
-    def get_unique_ids(self, gas_ids):
+    def get_unique_ids(self, gas_ids, return_num_feedback=False):
         mask_1       = np.isin(self.p0_ids, gas_ids)
         matching_ids = self.p0_ids[mask_1]
         u, c         = np.unique(matching_ids, return_counts=True)
         unique_ids   = u[c == 1]
-        return unique_ids
+        # Return just the number of new feedback particles to be excluded.
+        if return_num_feedback:
+            return len(u) - len(unique_ids)
+        # Else, return list of unique particle IDs.
+        else:
+            return unique_ids
 
     # Get mask based on gas_ids (include only unique IDs).
     def get_mask(self, gas_ids, verbose=False):
@@ -656,8 +661,13 @@ class SnapshotGasProperties:
         #data = np.zeros(25)
         data = np.zeros(24) # Exclude M_fb (not relevant new method for identifying feedback).
 
+        # Check that there are a non-zero number of particles to analyze.
         if not self.check_gas_ids(gas_ids):
             return data
+        
+        # Get number of new feedback particles identified as duplicates in list
+        # of matching particle IDs.
+        num_feedback_new = self.get_unique_ids(gas_ids, return_num_feedback=True)
 
         M_tot, x_cm, v_cm = self.get_center_of_mass(gas_ids)
         #L_unit_vec, L_mag = self.get_angular_momentum(gas_ids)
@@ -675,7 +685,7 @@ class SnapshotGasProperties:
         E_int  = self.get_internal_energy(gas_ids)
         N_inc  = np.sum(self.get_mask(gas_ids))
         #N_fb, M_fb = self.get_excluded_particles(gas_ids)
-        N_fb   = num_feedback
+        N_fb   = num_feedback + num_feedback_new
 
         data[0]     = M_tot   # Total mass.
         data[1:4]   = x_cm    # Center of mass coordinates.
