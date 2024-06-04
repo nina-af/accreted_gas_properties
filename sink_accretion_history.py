@@ -21,7 +21,7 @@ class SinkAccretionHistory:
         self.bhdir          = bhdir
         self.accretion_dict = self.accretion_history_to_dict()
         
-    def get_accretion_history(self, fname=None, save_txt=False):
+    def get_accretion_history(self, fname=None, save_txt=True, verbose=True):
     
         # List of bhswallow_%d.txt filenames:
         bhswallow_files = glob.glob(self.bhdir + 'bhswallow*.txt')
@@ -29,9 +29,14 @@ class SinkAccretionHistory:
         # Read all lines from all bhswallow files:
         bhswallow_total = []
         for i in range(len(bhswallow_files)):
+            if verbose:
+                print('Opening bhswallow file {0:d}...'.format(i), flush=True)
             with open(bhswallow_files[i]) as f:
                 data_list = f.read().splitlines()
                 for j in range(len(data_list)):
+                    # Ignore lines beginning with # symbol.
+                    if data_list[j][0:1] == "#":
+                        continue
                     new_data = data_list[j].split()
                     bhswallow_total.append(new_data)
                 
@@ -48,6 +53,8 @@ class SinkAccretionHistory:
         times    = np.asarray(time_list, dtype=float)
         
         # Sort by sink ID to group accretion history for each sink particle.
+        if verbose:
+            print('Sorting data by sink ID...', flush=True)
         idx_sink_sort    = np.argsort(sink_IDs)
         sink_IDs_grouped = sink_IDs[idx_sink_sort]
         gas_IDs_grouped  = gas_IDs[idx_sink_sort]
@@ -57,6 +64,8 @@ class SinkAccretionHistory:
         unique_sinks, first_occurrence = np.unique(sink_IDs_grouped, return_index=True)
     
         # Within each sink particle group, sort accreted gas particles by accretion time.
+        if verbose:
+            print('Sorting data by accretion time...', flush=True)
         idx_times_sort = []
         for i in range(len(first_occurrence) - 1):
             imin = first_occurrence[i]
@@ -76,6 +85,8 @@ class SinkAccretionHistory:
 
         # (Optionally) save as text file.
         if save_txt:
+            if verbose:
+                print('Saving as text file...', flush=True)
             # If no filename, save in blackhole_details directory.
             if fname is None:
                 fname = os.path.join(self.bhdir, 'sink_accretion_data.txt')
@@ -85,7 +96,7 @@ class SinkAccretionHistory:
         return accretion_data
 
     # Get sink particle properties at formation time.
-    def get_sink_formation_details(self, fname=None, save_txt=False):
+    def get_sink_formation_details(self, fname=None, save_txt=True):
     
         # List of bhformation_%d.txt filenames:
         bhformation_files = glob.glob(self.bhdir + 'bhformation*.txt')
@@ -96,6 +107,9 @@ class SinkAccretionHistory:
             with open(bhformation_files[i]) as f:
                 data_list = f.read().splitlines()
                 for j in range(len(data_list)):
+                    # Skip lines beginning with # symbol.
+                    if data_list[j][0:1] == "#":
+                        continue
                     new_data = data_list[j].split()
                     bhformation_total.append(new_data)
                 
@@ -657,13 +671,18 @@ class SnapshotGasProperties:
     # Get gas properties of selected gas particles.
     # gas_ids: pass accretion_dict[sink_ID]['non_fb_ids'] (non-feedback particle IDs).
     # new particle uniqueness ID check added to get_idx in get_X methods.
-    def get_gas_data(self, gas_ids, num_feedback):
+    def get_gas_data(self, gas_ids, num_feedback, skip_potential=True, verbose=True):
         #data = np.zeros(25)
         data = np.zeros(24) # Exclude M_fb (not relevant new method for identifying feedback).
 
         # Check that there are a non-zero number of particles to analyze.
         if not self.check_gas_ids(gas_ids):
             return data
+
+        if verbose:
+            print('Getting number of gas particles...', flush=True)
+            num_particles = np.sum(self.get_mask(gas_ids))
+            print('Analyzing {0:d} particles.'.format(num_particles), flush=True)
         
         # Get number of new feedback particles identified as duplicates in list
         # of matching particle IDs.
@@ -679,7 +698,16 @@ class SnapshotGasProperties:
         B      = self.get_average_magnetic_field(gas_ids)
         Ne     = self.get_average_electron_abundance(gas_ids)
         sig3D  = self.get_velocity_dispersion(gas_ids)
-        E_grav = self.get_potential_energy(gas_ids)
+        if skip_potential:
+            if verbose:
+                print('Skipping potential energy calculation...', flush=True)
+            E_grav = 0.0
+        else:
+            if verbose:
+                print('Getting potential energy with pytreegrav...', flush=True)
+            E_grav = self.get_potential_energy(gas_ids)
+            if verbose:
+                print('Done with potential energy calculation.', flush=True)
         E_kin  = self.get_kinetic_energy(gas_ids)
         E_mag  = self.get_magnetic_energy(gas_ids)
         E_int  = self.get_internal_energy(gas_ids)
@@ -708,7 +736,7 @@ class SnapshotGasProperties:
         return data
 
     # Get gas properties for each set of gas_ids in accretion_dict.
-    def get_all_gas_data(self, acc_dict):
+    def get_all_gas_data(self, acc_dict, skip_potential=True, verbose=True):
 
         # Unique sink IDs:
         sink_IDs  = acc_dict['sink_IDs']
@@ -719,6 +747,9 @@ class SnapshotGasProperties:
 
         # Loop over unique sinks.
         for j, sink_ID in enumerate(sink_IDs):
+
+            if verbose:
+                print('Getting data for sink ID {0:d}...'.format(sink_ID), flush=True)
 
             # OLD: Get particle IDs of all accreted gas particles.
             # acc_gas_ids = acc_dict[sink_ID][0][0]
@@ -740,7 +771,7 @@ class SnapshotGasProperties:
             gas_ids = self.p0_ids[mask]
 
             # Get gas properties.
-            data           = self.get_gas_data(gas_ids, num_feedback)
+            data           = self.get_gas_data(gas_ids, num_feedback, skip_potential=skip_potential)
             all_data[j, :] = data
 
         return all_data
