@@ -17,9 +17,10 @@ class SinkAccretionHistory:
     """
     
     # Initialize with path to blackhole_details directory (bhdir).
-    def __init__(self, bhdir):
+    def __init__(self, bhdir, fname_gas=None, fname_sink=None):
         self.bhdir          = bhdir
-        self.accretion_dict = self.accretion_history_to_dict()
+        self.accretion_dict = self.accretion_history_to_dict(fname_gas=fname_gas, 
+                                                             fname_sink=fname_sink)
         
     def get_accretion_history(self, fname=None, save_txt=True, verbose=True):
     
