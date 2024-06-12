@@ -97,7 +97,7 @@ class SinkAccretionHistory:
         return accretion_data
 
     # Get sink particle properties at formation time.
-    def get_sink_formation_details(self, fname=None, save_txt=True):
+    def get_sink_formation_details(self, fname=None, save_txt=False):
     
         # List of bhformation_%d.txt filenames:
         bhformation_files = glob.glob(self.bhdir + 'bhformation*.txt')
@@ -311,6 +311,9 @@ class Cloud:
             print('t_ff = {0:.3g} [code]'.format(t_ff))
         return t_ff
 
+
+# Speedup by pre-computing idx_g and pasing m, v, etc. as
+# arguments to functions for calculating gas properties.
 class SnapshotGasProperties:
     """
     Read gas particle data from HDF5 snapshot.
@@ -454,22 +457,18 @@ class SnapshotGasProperties:
     
     # Return only those particle IDs in gas_ids which occur only once in
     # list of all matching snapshot particle IDs.
-    def get_unique_ids(self, gas_ids, return_num_feedback=False):
+    def get_unique_ids(self, gas_ids):
         mask_1       = np.isin(self.p0_ids, gas_ids)
         matching_ids = self.p0_ids[mask_1]
         u, c         = np.unique(matching_ids, return_counts=True)
         unique_ids   = u[c == 1]
-        # Return just the number of new feedback particles to be excluded.
-        if return_num_feedback:
-            return len(u) - len(unique_ids)
-        # Else, return list of unique particle IDs.
-        else:
-            return unique_ids
+        num_excluded = len(u) - len(unique_ids)
+        return num_excluded, unique_ids
 
     # Get mask based on gas_ids (include only unique IDs).
     def get_mask(self, gas_ids, verbose=False):
-        unique_ids = self.get_unique_ids(gas_ids)
-        mask       = np.isin(self.p0_ids, unique_ids)
+        num_excluded, unique_ids = self.get_unique_ids(gas_ids)
+        mask = np.isin(self.p0_ids, unique_ids)
         return mask
 
     # Check that mask based on gas_ids is non-empty.
@@ -482,52 +481,20 @@ class SnapshotGasProperties:
                 print('No gas_ids above resolution limit.')
             return False
             
-    """
-    # OLD: Get mask based on gas_ids, res_limit.
-    def get_mask(self, gas_ids):
-        mask_ids = np.isin(self.p0_ids, gas_ids)
-        mask_res = (self.p0_m >= 0.99 * self.res_limit)
-        mask_all = np.logical_and(mask_ids, mask_res)
-
-        return mask_all
-
-    # OLD: Check that mask based on gas_ids, res_limit is non_zero.
-    def check_gas_ids(self, gas_ids, verbose=True):
-        mask_all = self.get_mask(gas_ids)
-        if np.sum(mask_all) > 0:
-            return True
-        else:
-            if verbose:
-                print('No gas_ids above resolution limit.')
-            return False
-
-
-    # OLD: Get number and total mass of particles excluded due to res_limit
-    # (i.e., number of particles with masses below the resolution limit but
-    # matching the particle ID of an accreted gas cell).
-    def get_excluded_particles(self, gas_ids):
-        mask_ids = np.isin(self.p0_ids, gas_ids)
-        mask_res = (self.p0_m < 0.99 * self.res_limit)
-        mask_fb  = np.logical_and(mask_ids, mask_res)
-        N_fb, M_fb = np.sum(mask_fb), np.sum(self.p0_m[mask_fb])
-        return N_fb, M_fb
-    """
-        
     # Get indices of selected gas particles.
     def get_idx(self, gas_ids):
-        unique_ids = self.get_unique_ids(gas_ids)
+        num_excluded, unique_ids = self.get_unique_ids(gas_ids)
         if np.isscalar(unique_ids):
             idx_g = np.where(self.p0_ids == unique_ids)[0][0]
         else:
             idx_g = np.isin(self.p0_ids, unique_ids)
-        return idx_g
+        return idx_g, num_excluded
         
     # Get center of mass for selected gas particles.
-    def get_center_of_mass(self, gas_ids):
-        idx_g   = self.get_idx(gas_ids)
-        m, M    = self.p0_m[idx_g], np.sum(self.p0_m[idx_g])
-        x, y, z = self.p0_x[idx_g], self.p0_y[idx_g], self.p0_z[idx_g]
-        u, v, w = self.p0_u[idx_g], self.p0_v[idx_g], self.p0_w[idx_g]
+    def get_center_of_mass(self, m, pos, vel):
+        M       = np.sum(m)
+        x, y, z = pos[:, 0], pos[:, 1], pos[:, 2]
+        u, v, w = vel[:, 0], vel[:, 1], vel[:, 2]
 
         x_cm = np.sum(np.multiply(m, x))/M; u_cm = np.sum(np.multiply(m, u))/M
         y_cm = np.sum(np.multiply(m, y))/M; v_cm = np.sum(np.multiply(m, v))/M
@@ -539,14 +506,15 @@ class SnapshotGasProperties:
         return M, cm_x, cm_v
         
     # Get gas kinematics relative to x, v vectors.
-    def get_relative_kinematics(self, gas_ids, point_x, point_v):
+    def get_relative_kinematics(self, m, pos, vel, point_x, point_v):
         x0, y0, z0 = point_x[0], point_x[1], point_x[2]
         u0, v0, w0 = point_v[0], point_v[1], point_v[2]
         
-        idx_g   = self.get_idx(gas_ids)
-        m       = self.p0_m[idx_g]
-        x, y, z = self.p0_x[idx_g] - x0, self.p0_y[idx_g] - y0, self.p0_z[idx_g] - z0
-        u, v, w = self.p0_u[idx_g] - u0, self.p0_v[idx_g] - v0, self.p0_w[idx_g] - w0
+        x1, y1, z1 = pos[:, 0], pos[:, 1], pos[:, 2]
+        u1, v1, w1 = vel[:, 0], vel[:, 1], vel[:, 2]
+        
+        x, y, z = x1 - x0, y1 - y0, z1 - z0
+        u, v, w = u1 - u0, v1 - v0, w1 - w0
         
         if np.isscalar(gas_ids):
             return m, np.asarray([x, y, z]), np.asarray([u, v, w])
@@ -554,109 +522,80 @@ class SnapshotGasProperties:
             return m, np.vstack((x, y, z)).T, np.vstack((u, v, w)).T
             
     # Get total mass of remaining gas.
-    def get_total_mass(self, gas_ids):
-        idx_g = self.get_idx(gas_ids)
-        m     = self.p0_m[idx_g]
+    def get_total_mass(self, m):
         return np.sum(m)
         
     # Get effective radius of selected gas particles.
-    def get_effective_radius(self, gas_ids):
-        idx_g = self.get_idx(gas_ids)
-        m     = self.p0_m[idx_g]
-        rho   = self.p0_rho[idx_g]
+    def get_effective_radius(self, m, rho):
         vol   = np.sum(m/rho)
         r     = ((3.0 * vol) / (4.0 * np.pi))**(1.0/3.0)
         return r
         
     # Get velocity dispersion of selected gas particles.
-    def get_velocity_dispersion(self, gas_ids):
-        idx_g   = self.get_idx(gas_ids)
-        m       = self.p0_m[idx_g]
-        u, v, w = self.p0_u[idx_g], self.p0_v[idx_g], self.p0_w[idx_g]
+    def get_velocity_dispersion(self, m, vel):
+        u, v, w  = vel[:, 0], vel[:, 1], vel[:, 2]
         sigma_3D = np.sqrt((self.weight_std(u, m)**2.0 + self.weight_std(v, m)**2.0 + \
                             self.weight_std(w, m)**2.0))
         return sigma_3D
         
     # Get angular momentum (with respect to center of mass) of selected gas particles.
-    def get_angular_momentum(self, gas_ids):
-        m_cm, x_cm, v_cm = self.get_center_of_mass(gas_ids)
-        m_g, x_g, v_g    = self.get_relative_kinematics(gas_ids, x_cm, v_cm)
+    def get_angular_momentum(self, m, pos, vel):
+        m_cm, x_cm, v_cm = self.get_center_of_mass(m, pos, vel)
+        m_g, x_g, v_g    = self.get_relative_kinematics(m, pos, vel, x_cm, v_cm)
         ang_mom_vec      = np.sum(np.cross(x_g, np.multiply(np.reshape(m_g, (len(m_g), 1)), v_g)), axis=0)
         ang_mom_mag      = np.linalg.norm(ang_mom_vec)
         ang_mom_unit_vec = ang_mom_vec / ang_mom_mag
         return ang_mom_unit_vec, ang_mom_mag
 
     # Get specific angular momentum (with respect to center of mass) of selected gas particles.
-    def get_specific_angular_momentum(self, gas_ids):
+    def get_specific_angular_momentum(self, m, pos, vel):
         if len(gas_ids) == 1:
             return np.asarray([0.0, 0.0, 0.0]), 0.0
-        m_cm, x_cm, v_cm = self.get_center_of_mass(gas_ids)
-        m_g, x_g, v_g    = self.get_relative_kinematics(gas_ids, x_cm, v_cm)
+        m_cm, x_cm, v_cm = self.get_center_of_mass(m, pos, vel)
+        m_g, x_g, v_g    = self.get_relative_kinematics(m, pos, vel, x_cm, v_cm)
         ang_mom_vec      = np.sum(np.cross(x_g, v_g), axis=0)
         ang_mom_mag      = np.linalg.norm(ang_mom_vec)
         ang_mom_unit_vec = ang_mom_vec / ang_mom_mag
         return ang_mom_unit_vec, ang_mom_mag
 
     # Get gravitational potential energy (need pytreegrav module).
-    def get_potential_energy(self, gas_ids):
-        idx_g   = self.get_idx(gas_ids)
-        m, h    = self.p0_m[idx_g], self.p0_hsml[idx_g]
-        x, y, z = self.p0_x[idx_g], self.p0_y[idx_g], self.p0_z[idx_g]
-        pos     = np.vstack((x, y, z)).T
+    def get_potential_energy(self, m, h, pos):
         E_pot   = 0.5 * np.sum(m * pg.Potential(pos, m, h, G=self.G_code))
         return E_pot
         
     # Get kinetic energy [code units].
-    def get_kinetic_energy(self, gas_ids):
-        idx_g   = self.get_idx(gas_ids)
-        m       = self.p0_m[idx_g]
-        u, v, w = self.p0_u[idx_g], self.p0_v[idx_g], self.p0_w[idx_g]
-        vel     = np.vstack((u, v, w)).T
+    def get_kinetic_energy(self, m, vel):
         dv      = vel - np.average(vel, weights=m, axis=0)
         v_sqr   = np.sum(dv**2,axis=1)
         E_kin   = 0.5 * np.sum(m * v_sqr)
         return E_kin
         
     # Get magnetic energy [code units].
-    def get_magnetic_energy(self, gas_ids):
-        idx_g   = self.get_idx(gas_ids)
-        m, rho  = self.p0_m[idx_g], self.p0_rho[idx_g]
-        B_mag   = self.p0_B_mag[idx_g] * self.B_unit
+    def get_magnetic_energy(self, m, rho, B_mag):
         vol     = (m / rho) * self.l_unit**3
         E_mag   = (1.0/(8.0 * np.pi)) * np.sum(B_mag * B_mag * vol) / (self.E_unit * self.m_unit)
         return E_mag
 
     # Get internal energy [code units].
-    def get_internal_energy(self, gas_ids):
-        idx_g = self.get_idx(gas_ids)
-        m, u  = self.p0_m[idx_g], self.p0_E_int[idx_g]
-        E_int = np.sum(m * u)
+    def get_internal_energy(self, m, int_en):
+        E_int = np.sum(m * int_en)
         return E_int
 
     # Get average (mass-weighted) temperature [K].
-    def get_average_temperature(self, gas_ids):
-        idx_g = self.get_idx(gas_ids)
-        m, T  = self.p0_m[idx_g], self.p0_temperature[idx_g]
-        return self.weight_avg(T, m)
+    def get_average_temperature(self, m, T_K):
+        return self.weight_avg(T_K, m)
 
     # Get average (mass-weighted) magnetic field strength [gauss].
-    def get_average_magnetic_field(self, gas_ids):
-        idx_g = self.get_idx(gas_ids)
-        m, B  = self.p0_m[idx_g], self.p0_B_mag[idx_g]
-        return self.weight_avg(B, m) * self.B_unit
+    def get_average_magnetic_field(self, m, B_mag):
+        return self.weight_avg(B_mag, m)
 
     # TO-DO: get average ionization fraction. For now, just get
     # average number of electrons per H nucleon.
-    def get_average_electron_abundance(self, gas_ids):
-        idx_g = self.get_idx(gas_ids)
-        m, Ne  = self.p0_m[idx_g], self.p0_Ne[idx_g]
-        return self.weight_avg(Ne, m)
+    def get_average_electron_abundance(self, m, elec):
+        return self.weight_avg(elec, m)
 
     # Get aspect ratio of selected gas particles (prinicpal component analysis).
-    def get_aspect_ratio(self, gas_ids):
-        idx_g = self.get_idx(gas_ids)
-        m     = self.p0_m[idx_g]
-        pos   = np.vstack((self.p0_x[idx_g], self.p0_y[idx_g], self.p0_z[idx_g])).T
+    def get_aspect_ratio(self, m, pos):
         dx    = pos - np.mean(pos, axis=0)
         R     = np.linalg.norm(dx, axis=1)
         ndim  = pos.shape[1]
@@ -672,33 +611,35 @@ class SnapshotGasProperties:
     # Get gas properties of selected gas particles.
     # gas_ids: pass accretion_dict[sink_ID]['non_fb_ids'] (non-feedback particle IDs).
     # new particle uniqueness ID check added to get_idx in get_X methods.
-    def get_gas_data(self, gas_ids, num_feedback, skip_potential=True, verbose=True):
-        #data = np.zeros(25)
+    def get_gas_data(self, idx_g, num_feedback, num_feedback_new, skip_potential=False, verbose=True):
         data = np.zeros(24) # Exclude M_fb (not relevant new method for identifying feedback).
-
-        # Check that there are a non-zero number of particles to analyze.
-        if not self.check_gas_ids(gas_ids):
-            return data
 
         if verbose:
             print('Getting number of gas particles...', flush=True)
-            num_particles = np.sum(self.get_mask(gas_ids))
+            num_particles = len(idx_g)
             print('Analyzing {0:d} particles.'.format(num_particles), flush=True)
         
-        # Get number of new feedback particles identified as duplicates in list
-        # of matching particle IDs.
-        num_feedback_new = self.get_unique_ids(gas_ids, return_num_feedback=True)
-
-        M_tot, x_cm, v_cm = self.get_center_of_mass(gas_ids)
-        #L_unit_vec, L_mag = self.get_angular_momentum(gas_ids)
-        L_unit_vec, L_mag = self.get_specific_angular_momentum(gas_ids)
+        # Speedup: get idx_g once, get m, v, etc. once, and pass as arguments
+        # to get_X functions.
+        m, h, rho = self.p0_m[idx_g], self.p0_hsml[idx_g], self.p0_rho[idx_g]
+        x, y, z   = self.p0_x[idx_g], self.p0_y[idx_g], self.p0_z[idx_g]
+        u, v, w   = self.p0_u[idx_g], self.p0_v[idx_g], self.p0_w[idx_g]
+        pos, vel  = np.vstack((x, y, z)).T, np.vstack((u, v, w)).T
+        B_mag     = self.p0_B_mag[idx_g] * self.B_unit
+        T_K       = self.p0_temperature[idx_g]
+        int_en    = self.p0_E_int[idx_g]
+        elec      = self.p0_Ne[idx_g]
+        
+        # Compute gas properties.
+        M_tot, x_cm, v_cm = self.get_center_of_mass(m, pos, vel)
+        L_unit_vec, L_mag = self.get_specific_angular_momentum(m, pos, vel)
         L_vec  = L_mag * L_unit_vec
-        R_eff  = self.get_effective_radius(gas_ids)
-        R_p    = self.get_aspect_ratio(gas_ids)
-        T      = self.get_average_temperature(gas_ids)
-        B      = self.get_average_magnetic_field(gas_ids)
-        Ne     = self.get_average_electron_abundance(gas_ids)
-        sig3D  = self.get_velocity_dispersion(gas_ids)
+        R_eff  = self.get_effective_radius(m, rho)
+        R_p    = self.get_aspect_ratio(m, pos)
+        T      = self.get_average_temperature(m, T_K)
+        B      = self.get_average_magnetic_field(m, B_mag)
+        Ne     = self.get_average_electron_abundance(m, elec)
+        sig3D  = self.get_velocity_dispersion(m, vel)
         if skip_potential:
             if verbose:
                 print('Skipping potential energy calculation...', flush=True)
@@ -706,14 +647,13 @@ class SnapshotGasProperties:
         else:
             if verbose:
                 print('Getting potential energy with pytreegrav...', flush=True)
-            E_grav = self.get_potential_energy(gas_ids)
+            E_grav = self.get_potential_energy(m, h, pos)
             if verbose:
                 print('Done with potential energy calculation.', flush=True)
-        E_kin  = self.get_kinetic_energy(gas_ids)
-        E_mag  = self.get_magnetic_energy(gas_ids)
-        E_int  = self.get_internal_energy(gas_ids)
-        N_inc  = np.sum(self.get_mask(gas_ids))
-        #N_fb, M_fb = self.get_excluded_particles(gas_ids)
+        E_kin  = self.get_kinetic_energy(m, vel)
+        E_mag  = self.get_magnetic_energy(m, rho, B_mag)
+        E_int  = self.get_internal_energy(m, int_en)
+        N_inc  = np.sum(idx_g)
         N_fb   = num_feedback + num_feedback_new
 
         data[0]     = M_tot   # Total mass.
@@ -732,10 +672,8 @@ class SnapshotGasProperties:
         data[21]    = E_int   # Internal energy (temperature proxy).
         data[22]    = N_inc   # Number of gas particles included in calculations.
         data[23]    = N_fb    # Number of gas particles excluded due to being (presumed) feedback particles.
-        #data[24]    = M_fb    # Mass of excluded (feedback) cells.
 
         return data
-    
 
     # Get gas properties for each set of gas_ids in accretion_dict.
     def get_all_gas_data(self, acc_dict, skip_potential=True, verbose=True,
@@ -752,7 +690,6 @@ class SnapshotGasProperties:
             print('Getting data for {0:d} sink particles in this snapshot...'.format(num_sinks), flush=True)
 
         all_data = np.zeros((num_sinks, 25))  # Entry 0: sink ID.
-        #all_data = np.zeros((num_sinks, 24))
 
         # Loop over unique sinks.
         for j, sink_ID in enumerate(sink_IDs):
@@ -760,27 +697,19 @@ class SnapshotGasProperties:
             if verbose:
                 print('Getting data for sink ID {0:d}...'.format(sink_ID), flush=True)
 
-            # OLD: Get particle IDs of all accreted gas particles.
-            # acc_gas_ids = acc_dict[sink_ID][0][0]
-
-            # OLD: Get mask of accreted gas particles above resolution limit.
-            # check_res_limit = self.check_gas_ids(acc_gas_ids, verbose=False)
-            # if not check_res_limit:
-            #     continue
-
             # Get particle IDs of accreted non-feedback gas particles.
             acc_gas_ids  = acc_dict[sink_ID]['non_fb_ids']
             num_feedback = np.sum(acc_dict[sink_ID]['fb_counts'])
-
-            # Check that there are more than zero gas IDs.
-            if not self.check_gas_ids(acc_gas_ids):
+            
+            # Get idx of unique accreted non-feedback gas particles.
+            idx_g, num_feedback_new = self.get_idx(acc_gas_ids)
+            
+            if len(idx_g) == 0:
                 continue
 
-            mask    = self.get_mask(acc_gas_ids)
-            gas_ids = self.p0_ids[mask]
-
             # Get gas properties.
-            data            = self.get_gas_data(gas_ids, num_feedback, skip_potential=skip_potential)
+            data            = self.get_gas_data(idx_g, num_feedback, num_feedback_new, 
+                                                skip_potential=skip_potential)
             all_data[j, 0]  = sink_ID  # Record sink ID.
             all_data[j, 1:] = data
 
@@ -842,7 +771,6 @@ class SnapshotGasProperties:
         f.create_dataset('internal_energy', data=E_int)
         f.create_dataset('included_particle_number', data=N_inc, dtype=int)
         f.create_dataset('feedback_particle_number', data=N_fb, dtype=int)
-        #f.create_dataset('feedback_particle_mass', data=M_fb)
 
         f.close()
 
