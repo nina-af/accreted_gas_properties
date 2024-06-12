@@ -5,12 +5,18 @@ import sys
 import os
 import h5py
 
-sys.path.append('/work/08381/nina_af/ls6/accreted_gas_properties')
+sys.path.append('/work/08381/nina_af/frontera/accreted_gas_properties')
 
 from sink_accretion_history import SinkAccretionHistory
 
-bhdir   = '/scratch/08381/nina_af/M2e3_R3_S0_T1_B0.01_Res126_n2_sol0.5_42/output/blackhole_details/'
-datadir = '/scratch/08381/nina_af/M2e3_R3_S0_T1_B0.01_Res126_n2_sol0.5_42/output/accreted_gas_properties_v2/'
+#bhdir   = '/scratch/08381/nina_af/M2e3_R3_S0_T1_B0.01_Res126_n2_sol0.5_42/output/blackhole_details/'
+#datadir = '/scratch/08381/nina_af/M2e3_R3_S0_T1_B0.01_Res126_n2_sol0.5_42/output/accreted_gas_properties_v2/'
+
+#bhdir   = '/scratch1/08381/nina_af/M50_n5e6_nonideal_reruns/output_nonideal_OAH/blackhole_details/'
+#datadir = '/scratch1/08381/nina_af/M50_n5e6_nonideal_reruns/output_nonideal_OAH/accreted_gas_properties/'
+
+bhdir   = '/scratch1/08381/nina_af/M50_n5e6_nonideal_reruns/output_nonideal_OAH_restart_v1/blackhole_details/'
+datadir = '/scratch1/08381/nina_af/M50_n5e6_nonideal_reruns/output_nonideal_OAH_restart_v1/accreted_gas_properties/'
 
 acc_dict  = SinkAccretionHistory(bhdir).accretion_dict
 
@@ -18,7 +24,8 @@ sink_IDs  = acc_dict['sink_IDs']
 num_sinks = len(sink_IDs)
 
 # Snapshot range.
-imin, imax = 0, 750
+#imin, imax = 291, 366   # nonideal_OAH
+imin, imax = 311, 337   # nonideal_OAH_restart_v1
 
 # Initialize [num_snapshots x num_data]-dim array for each sink ID;
 # loop over snapshots and add data to row i for each sink ID.
@@ -67,29 +74,29 @@ for i in range(imin, imax+1):
     for j, sink_ID in enumerate(sink_IDs):
         data = sink_data_dict[sink_ID]
 
-        data[i, 0]     = M_tot[j]
-        data[i, 1:4]   = x_cm[j]
-        data[i, 4:7]   = v_cm[j]
-        data[i, 7:10]  = L_vec[j]
-        data[i, 10]    = R_eff[j]
-        data[i, 11:14] = R_p[j]
-        data[i, 14]    = T[j]
-        data[i, 15]    = B[j]
-        data[i, 16]    = Ne[j]
-        data[i, 17]    = sig3D[j]
-        data[i, 18]    = E_grav[j]
-        data[i, 19]    = E_kin[j]
-        data[i, 20]    = E_mag[j]
-        data[i, 21]    = E_int[j]
-        data[i, 22]    = N_inc[j]
-        data[i, 23]    = N_fb[j]
+        data[i-imin, 0]     = M_tot[j]
+        data[i-imin, 1:4]   = x_cm[j]
+        data[i-imin, 4:7]   = v_cm[j]
+        data[i-imin, 7:10]  = L_vec[j]
+        data[i-imin, 10]    = R_eff[j]
+        data[i-imin, 11:14] = R_p[j]
+        data[i-imin, 14]    = T[j]
+        data[i-imin, 15]    = B[j]
+        data[i-imin, 16]    = Ne[j]
+        data[i-imin, 17]    = sig3D[j]
+        data[i-imin, 18]    = E_grav[j]
+        data[i-imin, 19]    = E_kin[j]
+        data[i-imin, 20]    = E_mag[j]
+        data[i-imin, 21]    = E_int[j]
+        data[i-imin, 22]    = N_inc[j]
+        data[i-imin, 23]    = N_fb[j]
         #data[i, 24]    = M_fb[j]
-        data[i, 24]    = time
+        data[i-imin, 24]    = time
 
         sink_data_dict[sink_ID] = data
         
 # Save each dict as an HDF5 dataset.
-fname  = os.path.join(datadir, 'all_accreted_gas_properties_v2.hdf5')
+fname  = os.path.join(datadir, 'all_accreted_gas_properties_nonideal_OAH_restart_v1.hdf5')
 f      = h5py.File(fname, 'w')
 header = f.create_dataset('header', (1,))
 header.attrs.create('m_unit', m_unit, dtype=float)
