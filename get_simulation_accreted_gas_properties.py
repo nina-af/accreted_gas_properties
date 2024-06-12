@@ -6,7 +6,7 @@ import os
 
 sys.path.append('/work/08381/nina_af/frontera/accreted_gas_properties')
 
-from sink_accretion_history import Cloud, SnapshotGasProperties, SinkAccretionHistory
+from sink_accretion_history_speedup import Cloud, SnapshotGasProperties, SinkAccretionHistory
 
 #bhdir     = '/scratch/08381/nina_af/M2e3_R3_S0_T1_B0.01_Res126_n2_sol0.5_42/output/blackhole_details/'
 #snapdir   = '/scratch/08381/nina_af/M2e3_R3_S0_T1_B0.01_Res126_n2_sol0.5_42/output/'
@@ -26,10 +26,10 @@ def get_fname(i, snapdir=snapdir):
     return os.path.join(snapdir, 'snapshot_{0:03d}.hdf5'.format(i))
 
 # Set snapshot range (later: pass as argument/detect from snapshot directory?)
-i_min, i_max = 339, 454  # fiducial_42
+i_min, i_max = 0, 454  # fiducial_42
 
 # Set sink particle range (split into batches of ~20 sink particles).
-sink_imin, sink_imax = 0, 30
+sink_imin, sink_imax = 31, 60
 
 # Loop over snapshots.
 for i in range(i_min, i_max+1, 1):
