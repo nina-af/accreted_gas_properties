@@ -161,14 +161,18 @@ class SinkAccretionHistory:
     #                                   (non-feedback) ids, (non-feedback) counts,
     #                                   (feedback) ids, (feedback) counts]
     #   - accretion_dict[sink_ID][1] = sink [t, m, x, y, z, vx, vy, vz] at formation.
-    def accretion_history_to_dict(self, fname_gas=None, fname_sink=None):
+    def accretion_history_to_dict(self, fname_gas=None, fname_sink=None, verbose=True):
         
         # Read accretion_data from stored .txt file.
         if fname_gas is not None:
+            if verbose:
+                print('Reading sink accretion data from {0:s}...'.format(fname_gas), flush=True)
             sink_IDs  = np.loadtxt(fname_gas, dtype=int, usecols=0)
             gas_IDs   = np.loadtxt(fname_gas, dtype=int, usecols=1)
             acc_times = np.loadtxt(fname_gas, dtype=float, usecols=2)
         else:
+            if verbose:
+                print('Getting sink accretion data from bhswallow files...', flush=True)
             accretion_data = self.get_accretion_history()
             sink_IDs  = accretion_data[:, 0]
             gas_IDs   = accretion_data[:, 1]
@@ -214,9 +218,13 @@ class SinkAccretionHistory:
     
         # Add sink particle properties at formation time to dict.
         if fname_sink is not None:
+            if verbose:
+                print('Reading sink formation details from {0:s}...'.format(fname_sink), flush=True)
             s_IDs  = np.loadtxt(fname_sink, dtype=int, usecols=0)
             s_data = np.loadtxt(fname_sink, dtype=float, usecols=(1, 2, 3, 4, 5, 6, 7, 8))
         else:
+            if verbose:
+                print('Getting sink formation details from bhfromation files...', flush=True)
             s_IDs, s_data = self.get_sink_formation_details()
             
         for i, sink_ID in enumerate(s_IDs):

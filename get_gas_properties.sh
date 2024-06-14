@@ -4,7 +4,7 @@
 #SBATCH -p development
 #SBATCH -N 1
 #SBATCH -n 1
-#SBATCH -t 00:20:00
+#SBATCH -t 02:00:00
 #SBATCH --mail-user=ninaf@utexas.edu
 #SBATCH --mail-type=all
 #SBATCH -A AST23034
@@ -19,4 +19,4 @@ module unload python3
 
 export QT_QPA_PLATFORM=offscreen
 
-./get_simulation_accreted_gas_properties.py 1>get_gas_properties_batch_31_60_1.out 2>get_gas_properties_batch_31_60_1.err
+./get_simulation_accreted_gas_properties.py 1>get_gas_properties_batch_0-99_1.out 2>get_gas_properties_batch_0-99_1.err

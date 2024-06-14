@@ -516,7 +516,7 @@ class SnapshotGasProperties:
         x, y, z = x1 - x0, y1 - y0, z1 - z0
         u, v, w = u1 - u0, v1 - v0, w1 - w0
         
-        if np.isscalar(gas_ids):
+        if np.isscalar(m):
             return m, np.asarray([x, y, z]), np.asarray([u, v, w])
         else:
             return m, np.vstack((x, y, z)).T, np.vstack((u, v, w)).T
@@ -549,7 +549,7 @@ class SnapshotGasProperties:
 
     # Get specific angular momentum (with respect to center of mass) of selected gas particles.
     def get_specific_angular_momentum(self, m, pos, vel):
-        if len(gas_ids) == 1:
+        if len(m) == 1:
             return np.asarray([0.0, 0.0, 0.0]), 0.0
         m_cm, x_cm, v_cm = self.get_center_of_mass(m, pos, vel)
         m_g, x_g, v_g    = self.get_relative_kinematics(m, pos, vel, x_cm, v_cm)
@@ -616,7 +616,7 @@ class SnapshotGasProperties:
 
         if verbose:
             print('Getting number of gas particles...', flush=True)
-            num_particles = len(idx_g)
+            num_particles = np.sum(idx_g)
             print('Analyzing {0:d} particles.'.format(num_particles), flush=True)
         
         # Speedup: get idx_g once, get m, v, etc. once, and pass as arguments
@@ -676,7 +676,7 @@ class SnapshotGasProperties:
         return data
 
     # Get gas properties for each set of gas_ids in accretion_dict.
-    def get_all_gas_data(self, acc_dict, skip_potential=True, verbose=True,
+    def get_all_gas_data(self, acc_dict, skip_potential=False, verbose=True,
                          use_all_sinks=True, sink_imin=None, sink_imax=None):
 
         # Unique sink IDs:
